@@ -52,6 +52,7 @@ import {
 } from "../protocol/index.js";
 import { CHAT_SEND_SESSION_KEY_MAX_LENGTH } from "../protocol/schema/primitives.js";
 import { getMaxChatHistoryMessagesBytes } from "../server-constants.js";
+import { maybeGenerateSessionTitle } from "../session-title-runner.js";
 import {
   capArrayByJsonBytes,
   loadSessionEntry,
@@ -1439,6 +1440,12 @@ export const chatHandlers: GatewayRequestHandlers = {
                 runId: clientRunId,
                 sessionKey: rawSessionKey,
                 message,
+              });
+              // Best-effort: generate AI title for newly-active sessions.
+              // Fire-and-forget — never block chat.final response on it.
+              void maybeGenerateSessionTitle({
+                sessionKey,
+                logGateway: context.logGateway,
               });
             }
           }

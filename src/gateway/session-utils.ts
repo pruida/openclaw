@@ -943,6 +943,7 @@ export function listSessionsFromStore(params: {
         kind: classifySessionKey(key, entry),
         label: entry?.label,
         displayName,
+        generatedTitle: entry?.generatedTitle,
         channel,
         subject,
         groupChannel,

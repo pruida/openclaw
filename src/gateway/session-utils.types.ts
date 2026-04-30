@@ -19,6 +19,8 @@ export type GatewaySessionRow = {
   kind: "direct" | "group" | "global" | "unknown";
   label?: string;
   displayName?: string;
+  /** AI-generated title persisted in SessionEntry. May be undefined if not yet generated or generation failed. */
+  generatedTitle?: string;
   derivedTitle?: string;
   lastMessagePreview?: string;
   channel?: string;

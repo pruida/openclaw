@@ -157,6 +157,10 @@ export type SessionEntry = {
   claudeCliSessionId?: string;
   label?: string;
   displayName?: string;
+  /** AI-generated short title summarizing the session's first exchange. */
+  generatedTitle?: string;
+  /** Epoch ms of last title generation attempt; suppresses retry storms. */
+  generatedTitleAt?: number;
   channel?: string;
   groupId?: string;
   subject?: string;
