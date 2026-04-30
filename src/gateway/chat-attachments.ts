@@ -326,19 +326,57 @@ export async function extractNonImageAttachments(
 }
 
 /**
+ * Per-extension extraction hint. Binary doc formats (PDF/XLSX/DOCX) do NOT
+ * read sensibly through a plain text tool — the model will see garbled bytes
+ * and fall back to "I can't read this." Tell the model exactly which command
+ * extracts text, with two fallbacks for the most common case (PDF). Plain
+ * text formats just say "read directly".
+ */
+function extractionHintForPath(p: string): string {
+  const ext = (p.split(".").pop() ?? "").toLowerCase();
+  switch (ext) {
+    case "pdf":
+      return [
+        `- ${p}  (PDF — DO NOT read as text, it's binary. Extract text first with one of:`,
+        `    pdftotext "${p}" -`,
+        `    python3 -c "from pypdf import PdfReader; print('\\\\n'.join(pg.extract_text() for pg in PdfReader('${p}').pages))"`,
+        `  if neither tool is installed, run \`pip install pypdf\` first.)`,
+      ].join("\n");
+    case "xlsx":
+    case "xls":
+      return [
+        `- ${p}  (Spreadsheet — extract with:`,
+        `    python3 -c "import openpyxl, sys; wb=openpyxl.load_workbook('${p}', data_only=True); [print('=== '+s.title+' ==='+chr(10)+chr(10).join(','.join(str(c.value) if c.value is not None else '' for c in row) for row in s.iter_rows()))  for s in wb.worksheets]"`,
+        `  or \`pip install openpyxl\` first if missing.)`,
+      ].join("\n");
+    case "docx":
+      return [
+        `- ${p}  (Word doc — extract with:`,
+        `    python3 -c "from docx import Document; print(chr(10).join(p.text for p in Document('${p}').paragraphs))"`,
+        `  or \`pip install python-docx\` first if missing.)`,
+      ].join("\n");
+    case "pptx":
+      return `- ${p}  (PowerPoint — extract with python-pptx: \`pip install python-pptx\`, then iterate slides.)`;
+    default:
+      return `- ${p}`;
+  }
+}
+
+/**
  * Compose a hint to append to the user's message so the agent knows the
- * files exist and where to find them. Bilingual instruction so models that
- * default to either language pick it up.
+ * files exist, where to find them, and which tool to use to read each one.
+ * Binary doc formats include concrete extraction commands so the agent
+ * doesn't try to `read` them as text and report "binary, truncated".
  */
 export function buildAttachmentHint(writtenPaths: string[]): string {
   if (writtenPaths.length === 0) {
     return "";
   }
-  const list = writtenPaths.map((p) => `- ${p}`).join("\n");
+  const list = writtenPaths.map(extractionHintForPath).join("\n");
   return [
     "",
     "",
-    "[The following files have been saved to my workspace for you to read with your file tools / 以下文件已保存到我的工作区，请用你的读文件工具查看]:",
+    "[Attached files saved to my workspace. Read each with the appropriate tool / 附件已保存到工作区，请用对应工具读取]:",
     list,
   ].join("\n");
 }

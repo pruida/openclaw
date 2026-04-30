@@ -277,11 +277,32 @@ describe("buildAttachmentHint", () => {
   it("produces empty string for no paths", () => {
     expect(buildAttachmentHint([])).toBe("");
   });
-  it("includes every path on its own line", () => {
+  it("includes every path", () => {
     const out = buildAttachmentHint(["/tmp/a.pdf", "/tmp/b.csv"]);
     expect(out).toContain("/tmp/a.pdf");
     expect(out).toContain("/tmp/b.csv");
     expect(out).toMatch(/workspace/i);
+  });
+  it("emits PDF-specific extraction commands (pdftotext / pypdf)", () => {
+    const out = buildAttachmentHint(["/tmp/foo.pdf"]);
+    expect(out).toMatch(/DO NOT read as text/);
+    expect(out).toContain("pdftotext");
+    expect(out).toContain("pypdf");
+  });
+  it("emits xlsx extraction command (openpyxl)", () => {
+    const out = buildAttachmentHint(["/tmp/foo.xlsx"]);
+    expect(out).toContain("openpyxl");
+  });
+  it("emits docx extraction command (python-docx)", () => {
+    const out = buildAttachmentHint(["/tmp/foo.docx"]);
+    expect(out).toContain("python-docx");
+  });
+  it("leaves plain-text files alone (no special tool hint)", () => {
+    const out = buildAttachmentHint(["/tmp/foo.csv", "/tmp/foo.py"]);
+    expect(out).toContain("/tmp/foo.csv");
+    expect(out).toContain("/tmp/foo.py");
+    expect(out).not.toContain("pdftotext");
+    expect(out).not.toContain("openpyxl");
   });
 });
 
