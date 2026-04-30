@@ -1,3 +1,5 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { estimateBase64DecodedBytes } from "../media/base64.js";
 import { sniffMimeFromBase64 } from "../media/sniff-mime-from-base64.js";
 
@@ -181,4 +183,184 @@ export function buildMessageWithAttachments(
   }
   const separator = message.trim().length > 0 ? "\n\n" : "";
   return `${message}${separator}${blocks.join("\n\n")}`;
+}
+
+// ============================================================================
+// Non-image attachment support
+//
+// `parseMessageWithAttachments` handles images by passing them through as
+// structured Claude/OpenAI vision blocks. Everything else (PDF, CSV, .py,
+// .log, .docx …) used to be dropped with a "non-image" warning, which left
+// users wondering why "请分析这个 PDF" returned "I haven't received any
+// file." The fix: write each non-image attachment to a per-session
+// subdirectory under the agent's workspace, then append a hint to the
+// user's message telling the agent where to find them. The agent (claude
+// code / codex / gemini) reads them via its normal `read` / `cat` tools.
+// ============================================================================
+
+const UPLOADS_SUBDIR = "uploads";
+const NON_IMAGE_DEFAULT_MAX_BYTES = 25 * 1024 * 1024; // 25 MB per file
+
+export type ExtractNonImageAttachmentsResult = {
+  /** Absolute paths of files written to the workspace. */
+  writtenPaths: string[];
+  /** Per-attachment errors (oversize, decode failures). */
+  errors: Array<{ label: string; error: string }>;
+};
+
+/** Strip path separators / nul / weird whitespace; keep CJK & ASCII. */
+function sanitizeUploadFilename(raw: string, idx: number): string {
+  // Drop any path components — only the basename (last segment) is kept.
+  // `..` collapse plus path.join confinement at the call site cover
+  // path-traversal, so explicit control-byte stripping is not load-bearing.
+  const base = (raw || "").split(/[/\\]/).pop() ?? "";
+  const cleaned = base.replace(/\.\.+/g, ".").trim();
+  if (!cleaned) {
+    return `attachment-${idx + 1}.bin`;
+  }
+  // Cap length so absurd filenames don't blow ext4's 255-byte limit.
+  return cleaned.length > 200 ? cleaned.slice(0, 200) : cleaned;
+}
+
+/** Make session keys safe as a dir name: `agent:main:web-XYZ` -> `agent_main_web-XYZ`. */
+function sanitizeSessionKeyForFs(sessionKey: string): string {
+  return (sessionKey || "session").replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 120) || "session";
+}
+
+/**
+ * Per-session uploads directory under the agent's workspace.
+ * E.g. `~/.openclaw/workspace/uploads/agent_main_web-abc/`.
+ * Caller is responsible for creating it (we do, via mkdir recursive).
+ */
+export function sessionUploadsDir(workspaceDir: string, sessionKey: string): string {
+  return path.join(workspaceDir, UPLOADS_SUBDIR, sanitizeSessionKeyForFs(sessionKey));
+}
+
+/**
+ * Write every non-image attachment to <workspaceDir>/uploads/<sessionKey>/<filename>.
+ * Image attachments are skipped — `parseMessageWithAttachments` already handled them.
+ *
+ * Atomic: each file is written to a `.tmp` sibling then renamed, so a crash
+ * mid-write never leaves a half-decoded PDF on disk.
+ *
+ * Failures (oversize, bad base64) are reported via the returned `errors`
+ * array AND logged at warn level — they never throw.
+ */
+export async function extractNonImageAttachments(
+  attachments: ChatAttachment[] | undefined,
+  workspaceDir: string,
+  sessionKey: string,
+  opts?: { maxBytes?: number; log?: AttachmentLog },
+): Promise<ExtractNonImageAttachmentsResult> {
+  const result: ExtractNonImageAttachmentsResult = { writtenPaths: [], errors: [] };
+  if (!attachments || attachments.length === 0 || !workspaceDir) {
+    return result;
+  }
+  const maxBytes = opts?.maxBytes ?? NON_IMAGE_DEFAULT_MAX_BYTES;
+  const log = opts?.log;
+
+  const targetDir = sessionUploadsDir(workspaceDir, sessionKey);
+  let dirReady = false;
+
+  for (const [idx, att] of attachments.entries()) {
+    if (!att) {
+      continue;
+    }
+    const providedMime = normalizeMime(att.mimeType);
+    if (providedMime && isImageMime(providedMime)) {
+      continue; // images go through parseMessageWithAttachments
+    }
+    const label = att.fileName || att.type || `attachment-${idx + 1}`;
+    let normalized: NormalizedAttachment;
+    try {
+      normalized = normalizeAttachment(att, idx, {
+        stripDataUrlPrefix: true,
+        requireImageMime: false,
+      });
+      validateAttachmentBase64OrThrow(normalized, { maxBytes });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log?.warn(`attachment ${label}: ${msg}`);
+      result.errors.push({ label, error: msg });
+      continue;
+    }
+
+    // Sniff to confirm it's truly not an image despite mime hint.
+    const sniffedMime = normalizeMime(await sniffMimeFromBase64(normalized.base64));
+    if (sniffedMime && isImageMime(sniffedMime)) {
+      continue; // surprise image, let the image path handle it next round
+    }
+
+    if (!dirReady) {
+      try {
+        await fs.mkdir(targetDir, { recursive: true });
+        dirReady = true;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log?.warn(`attachment ${label}: cannot create uploads dir (${msg})`);
+        result.errors.push({ label, error: `mkdir failed: ${msg}` });
+        return result; // no point trying further if dir is unwritable
+      }
+    }
+
+    const safeName = sanitizeUploadFilename(normalized.label, idx);
+    const finalPath = path.join(targetDir, safeName);
+    const tmpPath = `${finalPath}.tmp-${process.pid}-${Date.now().toString(36)}`;
+    try {
+      await fs.writeFile(tmpPath, Buffer.from(normalized.base64, "base64"));
+      await fs.rename(tmpPath, finalPath);
+      result.writtenPaths.push(finalPath);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log?.warn(`attachment ${label}: write failed (${msg})`);
+      result.errors.push({ label, error: msg });
+      try {
+        await fs.unlink(tmpPath);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Compose a hint to append to the user's message so the agent knows the
+ * files exist and where to find them. Bilingual instruction so models that
+ * default to either language pick it up.
+ */
+export function buildAttachmentHint(writtenPaths: string[]): string {
+  if (writtenPaths.length === 0) {
+    return "";
+  }
+  const list = writtenPaths.map((p) => `- ${p}`).join("\n");
+  return [
+    "",
+    "",
+    "[The following files have been saved to my workspace for you to read with your file tools / 以下文件已保存到我的工作区，请用你的读文件工具查看]:",
+    list,
+  ].join("\n");
+}
+
+/**
+ * Best-effort cleanup of a session's uploads dir. Called from sessions.delete.
+ * Failures are swallowed — the worst case is a few stranded files in a
+ * subdirectory the user can manually rm.
+ */
+export async function cleanupSessionUploads(
+  workspaceDir: string,
+  sessionKey: string,
+  log?: AttachmentLog,
+): Promise<void> {
+  if (!workspaceDir) {
+    return;
+  }
+  const targetDir = sessionUploadsDir(workspaceDir, sessionKey);
+  try {
+    await fs.rm(targetDir, { recursive: true, force: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log?.warn(`uploads cleanup for ${sessionKey} failed: ${msg}`);
+  }
 }

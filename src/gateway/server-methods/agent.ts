@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { listAgentIds } from "../../agents/agent-scope.js";
+import { resolveAgentWorkspaceDir } from "../../agents/agent-scope.js";
 import type { AgentInternalEvent } from "../../agents/internal-events.js";
 import {
   normalizeSpawnedRunMetadata,
@@ -34,7 +35,11 @@ import {
   normalizeMessageChannel,
 } from "../../utils/message-channel.js";
 import { resolveAssistantIdentity } from "../assistant-identity.js";
-import { parseMessageWithAttachments } from "../chat-attachments.js";
+import {
+  buildAttachmentHint,
+  extractNonImageAttachments,
+  parseMessageWithAttachments,
+} from "../chat-attachments.js";
 import { resolveAssistantAvatarUrl } from "../control-ui-shared.js";
 import { ADMIN_SCOPE } from "../method-scopes.js";
 import { GATEWAY_CLIENT_CAPS, hasGatewayClientCap } from "../protocol/client-info.js";
@@ -228,6 +233,24 @@ export const agentHandlers: GatewayRequestHandlers = {
       } catch (err) {
         respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, String(err)));
         return;
+      }
+      // Non-image attachments (PDF, CSV, .py, …) are written to the agent's
+      // workspace under uploads/<sessionKey>/ so the agent can read them
+      // through its file tools. Failures are swallowed (logged at warn).
+      try {
+        const workspaceDir = resolveAgentWorkspaceDir(cfg, request.agentId ?? "");
+        const sessionKeyForUploads = request.sessionKey ?? request.sessionId ?? "session";
+        const written = await extractNonImageAttachments(
+          normalizedAttachments,
+          workspaceDir,
+          sessionKeyForUploads,
+          { log: context.logGateway },
+        );
+        if (written.writtenPaths.length > 0) {
+          message = `${message}${buildAttachmentHint(written.writtenPaths)}`.trim();
+        }
+      } catch (err) {
+        context.logGateway.warn(`non-image attachment extract failed: ${String(err)}`);
       }
     }
 

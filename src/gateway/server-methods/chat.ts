@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { CURRENT_SESSION_VERSION } from "@mariozechner/pi-coding-agent";
 import { resolveSessionAgentId } from "../../agents/agent-scope.js";
+import { resolveAgentWorkspaceDir } from "../../agents/agent-scope.js";
 import { resolveThinkingDefault } from "../../agents/model-selection.js";
 import { resolveAgentTimeoutMs } from "../../agents/timeout.js";
 import { dispatchInboundMessage } from "../../auto-reply/dispatch.js";
@@ -33,6 +34,7 @@ import {
   resolveChatRunExpiresAtMs,
 } from "../chat-abort.js";
 import { type ChatImageContent, parseMessageWithAttachments } from "../chat-attachments.js";
+import { buildAttachmentHint, extractNonImageAttachments } from "../chat-attachments.js";
 import { stripEnvelopeFromMessage, stripEnvelopeFromMessages } from "../chat-sanitize.js";
 import { ADMIN_SCOPE } from "../method-scopes.js";
 import {
@@ -1188,6 +1190,26 @@ export const chatHandlers: GatewayRequestHandlers = {
     }
     const rawSessionKey = p.sessionKey;
     const { cfg, entry, canonicalKey: sessionKey } = loadSessionEntry(rawSessionKey);
+    // Persist non-image attachments (PDF, CSV, .py, …) into the agent's
+    // workspace and append a hint to the user's message so the model can
+    // read them with its file tools. Image parsing is unchanged above.
+    if (normalizedAttachments.length > 0) {
+      try {
+        const agentIdForUploads = resolveSessionAgentId({ sessionKey, config: cfg });
+        const workspaceDir = resolveAgentWorkspaceDir(cfg, agentIdForUploads);
+        const written = await extractNonImageAttachments(
+          normalizedAttachments,
+          workspaceDir,
+          sessionKey,
+          { log: context.logGateway },
+        );
+        if (written.writtenPaths.length > 0) {
+          parsedMessage = `${parsedMessage}${buildAttachmentHint(written.writtenPaths)}`.trim();
+        }
+      } catch (err) {
+        context.logGateway.warn(`non-image attachment extract failed: ${String(err)}`);
+      }
+    }
     const timeoutMs = resolveAgentTimeoutMs({
       cfg,
       overrideMs: p.timeoutMs,

@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { resolveDefaultAgentId } from "../../agents/agent-scope.js";
+import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../../agents/agent-scope.js";
 import { loadConfig } from "../../config/config.js";
 import {
   loadSessionStore,
@@ -8,6 +8,7 @@ import {
   updateSessionStore,
 } from "../../config/sessions.js";
 import { normalizeAgentId, parseAgentSessionKey } from "../../routing/session-key.js";
+import { cleanupSessionUploads } from "../chat-attachments.js";
 import { GATEWAY_CLIENT_IDS } from "../protocol/client-info.js";
 import {
   ErrorCodes,
@@ -316,6 +317,14 @@ export const sessionsHandlers: GatewayRequestHandlers = {
         reason: "session-delete",
         emitHooks: emitLifecycleHooks,
       });
+      // Clear non-image attachment uploads written under the agent workspace.
+      // Best-effort: failures are logged at warn but don't fail the delete.
+      try {
+        const workspaceDir = resolveAgentWorkspaceDir(cfg, target.agentId);
+        await cleanupSessionUploads(workspaceDir, target.canonicalKey ?? key);
+      } catch {
+        // ignore — uploads are a UX nicety, never load-bearing
+      }
     }
 
     respond(true, { ok: true, key: target.canonicalKey, deleted, archived }, undefined);
