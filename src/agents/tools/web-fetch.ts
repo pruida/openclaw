@@ -773,7 +773,8 @@ export function createWebFetchTool(options?: {
     label: "Web Fetch",
     name: "web_fetch",
     description:
-      "Fetch and extract readable content from a URL (HTML → markdown/text). Use for lightweight page access without browser automation.",
+      "Fetch and extract readable content from a URL (HTML → markdown/text). Use for lightweight page access without browser automation. " +
+      "**Do NOT use for mp.weixin.qq.com (微信公众号) URLs** — that domain IP-walls every datacenter range with a 「环境异常」 CAPTCHA, and even a successful response is often the wall page disguised as 200 OK. For 公众号 articles, call the `browser` tool instead (the gateway runs a persistent Chrome session whose profile has already cleared the CAPTCHA, so a `snapshot` after `open url=…` returns the real article body).",
     parameters: WebFetchSchema,
     execute: async (_toolCallId, args) => {
       const params = args as Record<string, unknown>;

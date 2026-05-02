@@ -306,6 +306,7 @@ export function createBrowserTool(opts?: {
     name: "browser",
     description: [
       "Control the browser via OpenClaw's browser control server (status/start/stop/profiles/tabs/open/snapshot/screenshot/actions).",
+      '**For mp.weixin.qq.com (微信公众号) URLs, use `profile="wechat"` if available** — `web_fetch` is IP-walled by that domain, and the `wechat` profile attaches via CDP to a persistent Chrome whose session has already cleared the 「环境异常」 CAPTCHA. Sequence: `open url=…&profile=wechat` then `snapshot` to read the body.',
       "Browser choice: omit profile by default for the isolated OpenClaw-managed browser (`openclaw`).",
       'For the logged-in user browser on the local host, use profile="user". A supported Chromium-based browser (v144+) must be running. Use only when existing logins/cookies matter and the user is present.',
       'When a node-hosted browser proxy is available, the tool may auto-route to it. Pin a node with node=<id|name> or target="node".',
