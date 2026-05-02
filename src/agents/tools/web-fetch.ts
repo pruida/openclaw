@@ -29,6 +29,7 @@ import {
   resolveTimeoutSeconds,
   writeCache,
 } from "./web-shared.js";
+import { getWechatCookieHeader, isWechatHost, WECHAT_USER_AGENT } from "./wechat-cookies.js";
 
 export { extractReadableContent } from "./web-fetch-utils.js";
 
@@ -535,17 +536,24 @@ async function runWebFetch(params: WebFetchRuntimeParams): Promise<Record<string
   let release: (() => Promise<void>) | null = null;
   let finalUrl = params.url;
   try {
+    const wechatHost = isWechatHost(parsedUrl.hostname);
+    const wechatCookie = wechatHost ? getWechatCookieHeader(parsedUrl) : undefined;
+    const headers: Record<string, string> = {
+      Accept: "text/markdown, text/html;q=0.9, */*;q=0.1",
+      "User-Agent": wechatHost ? WECHAT_USER_AGENT : params.userAgent,
+      "Accept-Language": wechatHost ? "zh-CN,zh;q=0.9" : "en-US,en;q=0.9",
+    };
+    if (wechatCookie) {
+      headers.Cookie = wechatCookie;
+      logDebug(
+        `[web-fetch] attaching mp.weixin.qq.com cookie jar to ${redactUrlForDebugLog(params.url)}`,
+      );
+    }
     const result = await fetchWithWebToolsNetworkGuard({
       url: params.url,
       maxRedirects: params.maxRedirects,
       timeoutSeconds: params.timeoutSeconds,
-      init: {
-        headers: {
-          Accept: "text/markdown, text/html;q=0.9, */*;q=0.1",
-          "User-Agent": params.userAgent,
-          "Accept-Language": "en-US,en;q=0.9",
-        },
-      },
+      init: { headers },
     });
     res = result.response;
     finalUrl = result.finalUrl;
