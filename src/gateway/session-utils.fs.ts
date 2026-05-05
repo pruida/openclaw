@@ -92,7 +92,17 @@ export function readSessionMessages(
     try {
       const parsed = JSON.parse(line);
       if (parsed?.message) {
-        messages.push(parsed.message);
+        // Inject the wrapper id onto the inner message so chat.history
+        // clients can call `messages.delete` with a stable identifier.
+        // Inner message payloads have no consistent id field of their
+        // own; the outer wrapper id is the only thing on disk that's
+        // unique across user turns, assistant turns, tool calls, etc.
+        const wrapperId = typeof parsed.id === "string" ? parsed.id : undefined;
+        if (wrapperId && parsed.message && typeof parsed.message === "object") {
+          messages.push({ ...(parsed.message as object), __entryId: wrapperId });
+        } else {
+          messages.push(parsed.message);
+        }
         continue;
       }
 

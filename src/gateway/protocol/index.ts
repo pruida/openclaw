@@ -190,6 +190,8 @@ import {
   SessionsCompactParamsSchema,
   type SessionsDeleteParams,
   SessionsDeleteParamsSchema,
+  type MessagesDeleteParams,
+  MessagesDeleteParamsSchema,
   type SessionsListParams,
   SessionsListParamsSchema,
   type SessionsPatchParams,
@@ -330,6 +332,9 @@ export const validateSessionsResetParams =
   ajv.compile<SessionsResetParams>(SessionsResetParamsSchema);
 export const validateSessionsDeleteParams = ajv.compile<SessionsDeleteParams>(
   SessionsDeleteParamsSchema,
+);
+export const validateMessagesDeleteParams = ajv.compile<MessagesDeleteParams>(
+  MessagesDeleteParamsSchema,
 );
 export const validateSessionsCompactParams = ajv.compile<SessionsCompactParams>(
   SessionsCompactParamsSchema,

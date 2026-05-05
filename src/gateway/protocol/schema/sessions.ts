@@ -116,6 +116,21 @@ export const SessionsCompactParamsSchema = Type.Object(
   { additionalProperties: false },
 );
 
+/// `messages.delete` removes specific entries from a session transcript
+/// jsonl by their outer wrapper `id`. Required because there's no other
+/// stable identifier — inner `message` payloads have inconsistent fields
+/// (assistant turns carry `timestamp` inline, user turns don't). The
+/// outer id is what `chat.history` returns alongside each message after
+/// the corresponding patch.
+export const MessagesDeleteParamsSchema = Type.Object(
+  {
+    key: NonEmptyString,
+    /** Outer wrapper ids of the transcript lines to drop. */
+    ids: Type.Array(NonEmptyString, { minItems: 1, maxItems: 500 }),
+  },
+  { additionalProperties: false },
+);
+
 export const SessionsUsageParamsSchema = Type.Object(
   {
     /** Specific session key to analyze; if omitted returns all sessions. */

@@ -58,6 +58,7 @@ const BASE_METHODS = [
   "sessions.patch",
   "sessions.reset",
   "sessions.delete",
+  "messages.delete",
   "sessions.compact",
   "last-heartbeat",
   "set-heartbeats",

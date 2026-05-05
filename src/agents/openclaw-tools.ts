@@ -18,6 +18,7 @@ import { createMessageTool } from "./tools/message-tool.js";
 import { createNodesTool } from "./tools/nodes-tool.js";
 import { createPdfGenerateTool } from "./tools/pdf-generate-tool.js";
 import { createPdfTool } from "./tools/pdf-tool.js";
+import { createPodcastTool } from "./tools/podcast-tool.js";
 import { createPptTool } from "./tools/ppt-tool.js";
 import { createSessionStatusTool } from "./tools/session-status-tool.js";
 import { createSessionsHistoryTool } from "./tools/sessions-history-tool.js";
@@ -179,6 +180,7 @@ export function createOpenClawTools(
     createPptTool(),
     createSiteTool(),
     createPdfGenerateTool(),
+    createPodcastTool(),
     createShareFileTool(),
     createGatewayTool({
       agentSessionKey: options?.agentSessionKey,

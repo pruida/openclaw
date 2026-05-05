@@ -13,6 +13,7 @@ import { GATEWAY_CLIENT_IDS } from "../protocol/client-info.js";
 import {
   ErrorCodes,
   errorShape,
+  validateMessagesDeleteParams,
   validateSessionsCompactParams,
   validateSessionsDeleteParams,
   validateSessionsListParams,
@@ -328,6 +329,131 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     }
 
     respond(true, { ok: true, key: target.canonicalKey, deleted, archived }, undefined);
+  },
+  /// Remove specific transcript lines from a session's jsonl by their
+  /// outer wrapper `id` (the same id that `chat.history` now returns
+  /// alongside each message). Survives reconnects and reinstalls because
+  /// the on-disk transcript is the single source of truth — once a line
+  /// is gone, no client can re-fetch it. Refuses to operate on a session
+  /// with an active run (would race the in-memory message buffer).
+  "messages.delete": async ({ params, respond, client, isWebchatConnect }) => {
+    if (!assertValidParams(params, validateMessagesDeleteParams, "messages.delete", respond)) {
+      return;
+    }
+    const p = params;
+    const key = requireSessionKey(p.key, respond);
+    if (!key) {
+      return;
+    }
+    if (rejectWebchatSessionMutation({ action: "delete", client, isWebchatConnect, respond })) {
+      return;
+    }
+    const ids = new Set(p.ids);
+    if (ids.size === 0) {
+      respond(true, { ok: true, deleted: 0, ids: [] }, undefined);
+      return;
+    }
+
+    const { entry, canonicalKey, legacyKey } = loadSessionEntry(key);
+    if (!entry?.sessionId) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, `session not found: ${key}`),
+      );
+      return;
+    }
+    const candidates = resolveSessionTranscriptCandidates(
+      entry.sessionId,
+      undefined,
+      entry.sessionFile,
+    );
+    const filePath = candidates.find((c) => fs.existsSync(c));
+    if (!filePath) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, `transcript file missing for ${key}`),
+      );
+      return;
+    }
+
+    // Best-effort: bail if the session is bound to an active agent run.
+    // cleanupSessionBeforeMutation is idempotent and aborts if a run is
+    // mid-flight; for a delete we do NOT want to disturb a live run, so
+    // require the caller to wait until the run finishes.
+    const cfg = loadConfig();
+    const target = resolveGatewaySessionStoreTarget({ cfg, key });
+    const cleanupErr = await cleanupSessionBeforeMutation({
+      cfg,
+      key,
+      target,
+      entry,
+      legacyKey,
+      canonicalKey,
+      reason: "messages-delete",
+    });
+    if (cleanupErr) {
+      respond(false, undefined, cleanupErr);
+      return;
+    }
+
+    let raw: string;
+    try {
+      raw = fs.readFileSync(filePath, "utf-8");
+    } catch (err) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.UNAVAILABLE, `read transcript failed: ${(err as Error).message}`),
+      );
+      return;
+    }
+    const lines = raw.split(/\r?\n/);
+    const kept: string[] = [];
+    const removed: string[] = [];
+    for (const line of lines) {
+      if (!line.trim()) {
+        kept.push(line);
+        continue;
+      }
+      let parsed: { id?: unknown } | null = null;
+      try {
+        parsed = JSON.parse(line) as { id?: unknown };
+      } catch {
+        kept.push(line);
+        continue;
+      }
+      const lineId = typeof parsed?.id === "string" ? parsed.id : "";
+      if (lineId && ids.has(lineId)) {
+        removed.push(lineId);
+        continue;
+      }
+      kept.push(line);
+    }
+    if (removed.length === 0) {
+      respond(true, { ok: true, deleted: 0, ids: [] }, undefined);
+      return;
+    }
+    const tmp = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+    try {
+      fs.writeFileSync(tmp, kept.join("\n"), "utf-8");
+      fs.renameSync(tmp, filePath);
+    } catch (err) {
+      try {
+        fs.unlinkSync(tmp);
+      } catch {
+        // ignore
+      }
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.UNAVAILABLE, `write transcript failed: ${(err as Error).message}`),
+      );
+      return;
+    }
+
+    respond(true, { ok: true, deleted: removed.length, ids: removed }, undefined);
   },
   "sessions.get": ({ params, respond }) => {
     const p = params;

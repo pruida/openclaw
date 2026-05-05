@@ -44,6 +44,7 @@ export type SessionsResolveParams = SchemaType<"SessionsResolveParams">;
 export type SessionsPatchParams = SchemaType<"SessionsPatchParams">;
 export type SessionsResetParams = SchemaType<"SessionsResetParams">;
 export type SessionsDeleteParams = SchemaType<"SessionsDeleteParams">;
+export type MessagesDeleteParams = SchemaType<"MessagesDeleteParams">;
 export type SessionsCompactParams = SchemaType<"SessionsCompactParams">;
 export type SessionsUsageParams = SchemaType<"SessionsUsageParams">;
 export type ConfigGetParams = SchemaType<"ConfigGetParams">;
