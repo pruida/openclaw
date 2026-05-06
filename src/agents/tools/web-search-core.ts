@@ -1990,14 +1990,9 @@ export function createWebSearchTool(options?: {
         provider !== "brave" &&
         !(provider === "perplexity" && supportsStructuredPerplexityFilters)
       ) {
-        return jsonResult({
-          error: "unsupported_country",
-          message:
-            provider === "perplexity"
-              ? "country filtering is only supported by the native Perplexity Search API path. Remove Perplexity baseUrl/model overrides or use a direct PERPLEXITY_API_KEY to enable it."
-              : `country filtering is not supported by the ${provider} provider. Only Brave and Perplexity support country filtering.`,
-          docs: "https://docs.openclaw.ai/tools/web",
-        });
+        logVerbose(
+          `[web_search] ignoring 'country' for provider=${provider}: not honored (only Brave and native Perplexity support country filtering).`,
+        );
       }
       const language = readStringParam(params, "language");
       if (
@@ -2005,14 +2000,9 @@ export function createWebSearchTool(options?: {
         provider !== "brave" &&
         !(provider === "perplexity" && supportsStructuredPerplexityFilters)
       ) {
-        return jsonResult({
-          error: "unsupported_language",
-          message:
-            provider === "perplexity"
-              ? "language filtering is only supported by the native Perplexity Search API path. Remove Perplexity baseUrl/model overrides or use a direct PERPLEXITY_API_KEY to enable it."
-              : `language filtering is not supported by the ${provider} provider. Only Brave and Perplexity support language filtering.`,
-          docs: "https://docs.openclaw.ai/tools/web",
-        });
+        logVerbose(
+          `[web_search] ignoring 'language' for provider=${provider}: not honored (only Brave and native Perplexity support language filtering).`,
+        );
       }
       if (language && provider === "perplexity" && !/^[a-z]{2}$/i.test(language)) {
         return jsonResult({
@@ -2046,28 +2036,20 @@ export function createWebSearchTool(options?: {
       const resolvedSearchLang = normalizedBraveLanguageParams.search_lang;
       const resolvedUiLang = normalizedBraveLanguageParams.ui_lang;
       if (resolvedUiLang && provider === "brave" && braveMode === "llm-context") {
-        return jsonResult({
-          error: "unsupported_ui_lang",
-          message:
-            "ui_lang is not supported by Brave llm-context mode. Remove ui_lang or use Brave web mode for locale-based UI hints.",
-          docs: "https://docs.openclaw.ai/tools/web",
-        });
+        logVerbose(
+          "[web_search] ignoring 'ui_lang' for Brave llm-context mode: not supported (use Brave web mode for locale-based UI hints).",
+        );
       }
       const rawFreshness = readStringParam(params, "freshness");
       if (rawFreshness && provider !== "brave" && provider !== "perplexity") {
-        return jsonResult({
-          error: "unsupported_freshness",
-          message: `freshness filtering is not supported by the ${provider} provider. Only Brave and Perplexity support freshness.`,
-          docs: "https://docs.openclaw.ai/tools/web",
-        });
+        logVerbose(
+          `[web_search] ignoring 'freshness' for provider=${provider}: not honored (only Brave and Perplexity support freshness).`,
+        );
       }
       if (rawFreshness && provider === "brave" && braveMode === "llm-context") {
-        return jsonResult({
-          error: "unsupported_freshness",
-          message:
-            "freshness filtering is not supported by Brave llm-context mode. Remove freshness or use Brave web mode.",
-          docs: "https://docs.openclaw.ai/tools/web",
-        });
+        logVerbose(
+          "[web_search] ignoring 'freshness' for Brave llm-context mode: not supported (use Brave web mode for freshness).",
+        );
       }
       const freshness = rawFreshness ? normalizeFreshness(rawFreshness, provider) : undefined;
       if (rawFreshness && !freshness) {
@@ -2092,22 +2074,14 @@ export function createWebSearchTool(options?: {
         provider !== "brave" &&
         !(provider === "perplexity" && supportsStructuredPerplexityFilters)
       ) {
-        return jsonResult({
-          error: "unsupported_date_filter",
-          message:
-            provider === "perplexity"
-              ? "date_after/date_before are only supported by the native Perplexity Search API path. Remove Perplexity baseUrl/model overrides or use a direct PERPLEXITY_API_KEY to enable them."
-              : `date_after/date_before filtering is not supported by the ${provider} provider. Only Brave and Perplexity support date filtering.`,
-          docs: "https://docs.openclaw.ai/tools/web",
-        });
+        logVerbose(
+          `[web_search] ignoring 'date_after'/'date_before' for provider=${provider}: not honored (only Brave and native Perplexity support date filtering).`,
+        );
       }
       if ((rawDateAfter || rawDateBefore) && provider === "brave" && braveMode === "llm-context") {
-        return jsonResult({
-          error: "unsupported_date_filter",
-          message:
-            "date_after/date_before filtering is not supported by Brave llm-context mode. Use Brave web mode for date filters.",
-          docs: "https://docs.openclaw.ai/tools/web",
-        });
+        logVerbose(
+          "[web_search] ignoring 'date_after'/'date_before' for Brave llm-context mode: not supported (use Brave web mode for date filters).",
+        );
       }
       const dateAfter = rawDateAfter ? normalizeToIsoDate(rawDateAfter) : undefined;
       if (rawDateAfter && !dateAfter) {
@@ -2138,14 +2112,9 @@ export function createWebSearchTool(options?: {
         domainFilter.length > 0 &&
         !(provider === "perplexity" && supportsStructuredPerplexityFilters)
       ) {
-        return jsonResult({
-          error: "unsupported_domain_filter",
-          message:
-            provider === "perplexity"
-              ? "domain_filter is only supported by the native Perplexity Search API path. Remove Perplexity baseUrl/model overrides or use a direct PERPLEXITY_API_KEY to enable it."
-              : `domain_filter is not supported by the ${provider} provider. Only Perplexity supports domain filtering.`,
-          docs: "https://docs.openclaw.ai/tools/web",
-        });
+        logVerbose(
+          `[web_search] ignoring 'domain_filter' for provider=${provider}: not honored (only native Perplexity supports domain filtering).`,
+        );
       }
 
       if (domainFilter && domainFilter.length > 0) {
@@ -2175,12 +2144,9 @@ export function createWebSearchTool(options?: {
         perplexityRuntime?.transport === "chat_completions" &&
         (maxTokens !== undefined || maxTokensPerPage !== undefined)
       ) {
-        return jsonResult({
-          error: "unsupported_content_budget",
-          message:
-            "max_tokens and max_tokens_per_page are only supported by the native Perplexity Search API path. Remove Perplexity baseUrl/model overrides or use a direct PERPLEXITY_API_KEY to enable them.",
-          docs: "https://docs.openclaw.ai/tools/web",
-        });
+        logVerbose(
+          "[web_search] ignoring 'max_tokens'/'max_tokens_per_page' for Perplexity chat_completions transport: only the native Perplexity Search API path honors these.",
+        );
       }
 
       const result = await runWebSearch({
