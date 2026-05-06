@@ -289,10 +289,13 @@ function createWebSearchSchema(params: {
     });
   }
 
-  // grok, gemini, kimi, etc.
+  // grok, gemini, kimi, etc. — these providers don't honor structured filters
+  // (country/language/freshness/date_after/date_before). Don't expose them in
+  // the schema so agents never pass parameters that the downstream handler
+  // would reject with `unsupported_*` errors. Direct API callers can still
+  // pass them and will hit the existing rejection paths as before.
   return Type.Object({
     ...querySchema,
-    ...filterSchema,
   });
 }
 
