@@ -25,6 +25,38 @@ const MAX_TRACKED_ADJUSTED_PARAMS = 1024;
 const LOOP_WARNING_BUCKET_SIZE = 10;
 const MAX_LOOP_WARNING_KEYS = 256;
 
+// Hard cap on tool calls per agent run. Independent of the
+// `tools.loopDetection.*` configurability — the detection module is
+// opt-out so a future operator could turn it off and re-introduce the
+// runaway-tool failure mode. This counter is a backstop with no config:
+// even with detection disabled, no single run can issue more than 100
+// tool calls before the next call is rejected with a "stop and answer"
+// reason. Tuning rationale: well above the global circuit breaker
+// threshold (30) so this only fires when detectors are bypassed; well
+// below pathological cases (we observed 63 in production before the
+// lobster run-timeout killed the agent).
+const MAX_TOOL_CALLS_PER_RUN = 100;
+const MAX_TRACKED_RUN_COUNTS = 4096;
+const toolCallsByRun = new Map<string, number>();
+
+function bumpToolCallCounter(runId: string | undefined): number {
+  if (!runId) {
+    return 0;
+  }
+  // Bound the map: FIFO-evict the oldest run on overflow. Old runs leak
+  // when an agent crashes before completion; without bounding, a long-
+  // running gateway accumulates Map entries indefinitely.
+  if (toolCallsByRun.size > MAX_TRACKED_RUN_COUNTS) {
+    const oldest = toolCallsByRun.keys().next().value;
+    if (typeof oldest === "string") {
+      toolCallsByRun.delete(oldest);
+    }
+  }
+  const next = (toolCallsByRun.get(runId) ?? 0) + 1;
+  toolCallsByRun.set(runId, next);
+  return next;
+}
+
 const loadBeforeToolCallRuntime = createLazyRuntimeSurface(
   () => import("./pi-tools.before-tool-call.runtime.js"),
   ({ beforeToolCallRuntime }) => beforeToolCallRuntime,
@@ -94,6 +126,21 @@ export async function runBeforeToolCallHook(args: {
 }): Promise<HookOutcome> {
   const toolName = normalizeToolName(args.toolName || "tool");
   const params = args.params;
+
+  // Run-level hard cap. Gates the detector and the hook — runs over
+  // budget never reach either path. The reason text is what the model
+  // sees as the synthetic tool result, so phrase it as an instruction:
+  // "stop, summarise what you have" rather than a vague error.
+  const runCallCount = bumpToolCallCounter(args.ctx?.runId);
+  if (runCallCount > MAX_TOOL_CALLS_PER_RUN) {
+    log.error(
+      `Run ${args.ctx?.runId ?? "?"} exceeded MAX_TOOL_CALLS_PER_RUN=${MAX_TOOL_CALLS_PER_RUN}; blocking ${toolName}.`,
+    );
+    return {
+      blocked: true,
+      reason: `Tool-call budget for this run exhausted (>${MAX_TOOL_CALLS_PER_RUN} calls). Stop calling tools, summarise the partial results you already have, apologise that you couldn't fully complete the task, and ask the user how they'd like to proceed.`,
+    };
+  }
 
   if (args.ctx?.sessionKey) {
     const { getDiagnosticSessionState, logToolLoopAction, detectToolCallLoop, recordToolCall } =

@@ -29,7 +29,15 @@ export const WARNING_THRESHOLD = 10;
 export const CRITICAL_THRESHOLD = 20;
 export const GLOBAL_CIRCUIT_BREAKER_THRESHOLD = 30;
 const DEFAULT_LOOP_DETECTION_CONFIG = {
-  enabled: false,
+  // Flipped from `false` to `true` (fork 2026.3.14-titles.5): every
+  // detector is opt-in by config but the master switch was off by
+  // default, which made it dead code on every gateway in the wild.
+  // Production hit a real loop in May 2026 (63 web_fetch / web_search
+  // ping-pong attempts on a bot-protected URL, single agent run
+  // burned the full 600s timeoutSeconds before lobster gave up).
+  // Flipping the default is a no-op for users who set the field
+  // explicitly, and a correctness win for everyone else.
+  enabled: true,
   historySize: TOOL_CALL_HISTORY_SIZE,
   warningThreshold: WARNING_THRESHOLD,
   criticalThreshold: CRITICAL_THRESHOLD,
